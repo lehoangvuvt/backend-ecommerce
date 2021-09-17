@@ -1,0 +1,30 @@
+import { Injectable, CanActivate, ExecutionContext } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import { tokenConfig } from '../config/token.config';
+
+@Injectable()
+export class TokenGuard implements CanActivate {
+    constructor(private jwtService: JwtService) { }
+    async canActivate(
+        context: ExecutionContext,
+    ): Promise<boolean> {
+        const response = context.switchToHttp().getResponse();
+        const request = context.switchToHttp().getRequest();
+        if (request.cookies && request.cookies['access_token']) {
+            const access_token = request.cookies['access_token'];
+            try {
+                const decoded = await this.jwtService.verifyAsync(access_token, { secret: tokenConfig.accesss_token_secret_key })
+                if (!decoded) return false;
+                request.customer = {
+                    SID: decoded.SID,
+                    ROLE: 'admin'
+                };
+                return true;
+            } catch (error) {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+}
