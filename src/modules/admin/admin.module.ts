@@ -28,12 +28,14 @@ import SettingController from './controller/setting.controller';
 import SettingService from './services/setting.service';
 import SenderMailConfig from './entity/sender_mail_config.entity';
 import Coupon from '../customer/coupon.entity';
+import ProductPrice from '../product/product_price.entity';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
       ProductInformation,
       ProductBrand,
+      ProductPrice,
       Customer,
       Order,
       Category,

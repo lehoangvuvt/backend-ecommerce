@@ -791,9 +791,10 @@ export default class ProductService {
 
   async getOrderBillByID(id: number) {
     console.log();
-    const bill = await this.orderRepositoty.query(
-      `SELECT BILL FROM mydb.order where ID = ${id};`,
-    );
+    // const bill = await this.orderRepositoty.query(
+    //   `SELECT BILL FROM mydb.order where ID = ${id};`,
+    // );
+    const bill = await this.orderRepositoty.find({where: {ID :id}})
     return bill;
   }
 
@@ -908,7 +909,7 @@ export default class ProductService {
     const response = await axios({
       url,
       headers: {
-        "X-Viber-Auth-Token": "4dd5c915d2a7d339-f3fe643c834d75a0-fbdc4f808a3eebd1",
+        "X-Viber-Auth-Token": "4e01e82d7c67dafc-2b7898c36c59455e-ed6770b8fa7fff50",
         "Content-Type": "application/json",
       },
       data: body,
@@ -924,9 +925,14 @@ export default class ProductService {
         STORE_CODE: ""
       }
     }
-    return {
-      STORE_CODE: response.STORE_CODE
-    };
+    else {
+      const store_id = await this.storeRepository.findOne({where: {STORE_CODE: response.STORE_CODE}})
+      return {
+        STORE_CODE: response.STORE_CODE,
+        STORE_ID: store_id.STORE_ID
+      };
+    }
+    
   }
 }
 

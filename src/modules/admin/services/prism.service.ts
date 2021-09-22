@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import axios from "axios";
 import { PrismCategoryType, PrismInventoryType, PrismStoreType, ProductAttributeGroupType, ProductAttributeType, ProductInformationType, ProductType } from "../../../types/types";
-import { Repository } from "typeorm";
+import { DefaultNamingStrategy, Repository } from "typeorm";
 import CreateStoreDTO from "../../../modules/store/dto/create-store.dto";
 import PrismCrawlHistory from "../entity/prism_crawl_history.entity";
 import * as moment from "moment";
@@ -17,6 +17,10 @@ import { CreateOrderDTO } from "src/modules/order/dto/create-order.dto";
 import { response } from "express";
 import { create } from "domain";
 import Coupon from '../../customer/coupon.entity'
+import { DefaultEventsMap } from "socket.io-client/build/typed-events";
+import { io } from "socket.io-client";
+import ProductInformation from "../../../modules/product/product_information.entity";
+import ProductPrice from "../../../modules/product/product_price.entity";
 
 type OptionType = {
     UPC: string,
@@ -51,9 +55,11 @@ export default class PrismService {
         @InjectRepository(Store) private storeRepository: Repository<Store>,
         @InjectRepository(Category) private categoryRepository: Repository<Category>,
         @InjectRepository(ProductBrand) private productBrandRepository: Repository<ProductBrand>,
+        @InjectRepository(ProductInformation) private productInformationRepository: Repository<ProductInformation>,
+        @InjectRepository(ProductPrice) private productPriceRepository: Repository<ProductPrice>,
         @InjectRepository(Coupon) private couponRepository: Repository<Coupon>
     ) { }
-    private BASE_URL = "http://d71e-58-186-85-28.ap.ngrok.io"
+    private BASE_URL = "http://desktop-7kk869t"
     private REST_BASE_URL = `${this.BASE_URL}/v1/rest`;
     private BACK_OFFICE_BASE_URL = `${this.BASE_URL}/api/backoffice`;
     private API_COMMON_BASE_URL = `${this.BASE_URL}/api/common`;
@@ -106,10 +112,17 @@ export default class PrismService {
         return { token: this.token.value };
     }
 
+    async updateNotiInStoreCode(store_code: string) {
+        const url = "http://localhost:5035/socket/orders";
+        const socket = io(url, { transports: ["websocket"] });
+        socket.emit('newOrders', { store: store_code });
+    }
+
     async updateOrder(createOrderDTO: CreateOrderDTO, store_code: string) {
         try {
             let customer_id = await this.updateCustomer(createOrderDTO);
             await this.createOrder(customer_id, createOrderDTO, store_code);
+            this.updateNotiInStoreCode(store_code)
         }
         catch (ex) {
             console.log(ex.response.data);
@@ -311,7 +324,7 @@ export default class PrismService {
             }
         })
 
-        if (Number(createOrderDTO.DISC_AMT) + Number(createOrderDTO.COUPON_VALUE) > 0) {
+        if (Number(createOrderDTO.DISC_AMT) + Number(createOrderDTO.COUPON_VALUE) + Number(createOrderDTO.REDEEM_AMOUNT) > 0) {
             const putDiscount = await axios({
                 method: "PUT",
                 url: `${this.REST_BASE_URL}/document/${doc_sid}?filter=(row_version,eq,${doc.data[0].row_version})`,
@@ -322,8 +335,8 @@ export default class PrismService {
                 },
                 data: [{
                     manual_disc_type: 2,
-                    manual_disc_value: Number(createOrderDTO.DISC_AMT) + Number(createOrderDTO.COUPON_VALUE),
-                    manual_disc_reason: null,
+                    manual_disc_value: Number(createOrderDTO.DISC_AMT) + Number(createOrderDTO.COUPON_VALUE) + Number(createOrderDTO.REDEEM_AMOUNT),
+                    manual_disc_reason: Number(createOrderDTO.REDEEM_AMOUNT) > 0 ? "REDEEM_LOYALTY" : null,
                     manual_order_disc_reason: null
                 }]
             })
@@ -449,6 +462,7 @@ export default class PrismService {
         const currentDT = new Date();
         await this.authenticate();
         const crawlHistory = await this.prismCrawlHistoryRepository.findOne({ where: { TABLE_NAME: 'store' } });
+        console.log(crawlHistory);
         if (!crawlHistory) {
             const url = `${this.REST_BASE_URL}/store?cols=*`;
             const response = await axios({
@@ -506,8 +520,9 @@ export default class PrismService {
             await prismCrawlHistory.save();
             return { stores };
         } else {
-            const filterDate = moment(new Date(currentDT.toString())).format('YYYY-MM-DDTHH:mm:ss');
-            const url = `${this.REST_BASE_URL}/store?cols=*&filter=(modified_datetime,ge,${filterDate})`;
+            const filterDate = moment(new Date(crawlHistory.LAST_CRAWL_DATETIME.toString())).format('YYYY-MM-DDTHH:mm:ss');
+            const url = `${this.REST_BASE_URL}/store?cols=*&filter=(modified_datetime,ge,${filterDate})or(created_datetime,ge,${filterDate})`;
+            console.log(url);
             const response = await axios({
                 url,
                 method: 'GET',
@@ -516,6 +531,7 @@ export default class PrismService {
                     'Auth-Session': this.token.value
                 }
             })
+            console.log(response.data);
             let stores: Array<PrismStoreType> = [];
             let storeList: Array<{
                 NAME: string,
@@ -623,8 +639,10 @@ export default class PrismService {
             });
             await prismCrawlHistory.save();
         } else {
-            const filterDate = moment(new Date(currentDT.toString())).format('YYYY-MM-DDTHH:mm:ss');
-            const url = `${this.BACK_OFFICE_BASE_URL}/dcs?cols=*&filter=(modifieddatetime,ge,${filterDate})`;
+            console.log('start')
+            const filterDate = moment(new Date(crawlHistory.LAST_CRAWL_DATETIME.toString())).format('YYYY-MM-DDTHH:mm:ss');
+            const url = `${this.BACK_OFFICE_BASE_URL}/dcs?cols=*&filter=(modifieddatetime,ge,${filterDate})or(createddatetime,ge,${filterDate})`;
+            console.log(url);
             const response = await axios({
                 url,
                 method: 'GET',
@@ -633,6 +651,7 @@ export default class PrismService {
                     'Auth-Session': this.token.value
                 }
             })
+            console.log(response);
             let categories: Array<PrismCategoryType> = [];
             let categoryList: Array<{
                 CATEGORY_NAME: string,
@@ -726,8 +745,8 @@ export default class PrismService {
             });
             await prismCrawlHistory.save();
         } else {
-            const filterDate = moment(new Date(currentDT.toString())).format('YYYY-MM-DDTHH:mm:ss');
-            const url = `${this.BACK_OFFICE_BASE_URL}/vendor?cols=*&filter=(modifieddatetime,ge,${filterDate})`;
+            const filterDate = moment(new Date(crawlHistory.LAST_CRAWL_DATETIME.toString())).format('YYYY-MM-DDTHH:mm:ss');
+            const url = `${this.BACK_OFFICE_BASE_URL}/vendor?cols=*&filter=(modifieddatetime,ge,${filterDate})or(createddatetime,ge,${filterDate})`;
             const response = await axios({
                 url,
                 method: 'GET',
@@ -777,6 +796,7 @@ export default class PrismService {
         await this.authenticate();
         const crawlHistory = await this.prismCrawlHistoryRepository.findOne({ where: { TABLE_NAME: 'product_information' } });
         if (!crawlHistory) {
+
             const url = `${this.REST_BASE_URL}/inventory?cols=*,sbsinventoryqty.*,sbsinventorystoreqty.*,sbsinventoryactiveprice.*`;
             const response = await axios({
                 url,
@@ -818,9 +838,9 @@ export default class PrismService {
                 const imagePath = data.image_path.replace(/\\/g, '/');
                 const imageName = data.image_path.replace(/\\/g, '').replace('inventory', '') + data.inventory_item_uid.substring(1, data.inventory_item_uid.length);
                 const fileType = '.jpg';
-                const IMAGE1_URL = imagePath + imageName + fileType;
-                const IMAGE2_URL = imagePath + imageName + '%232' + fileType;
-                const IMAGE3_URL = imagePath + imageName + '%233' + fileType;
+                const IMAGE1_URL = data.image_path + '\\' + imageName + fileType;
+                const IMAGE2_URL = data.image_path + '\\' + imageName + + '%232' + fileType;
+                const IMAGE3_URL = data.image_path + '\\' + imageName + + '%233' + fileType;
                 let THRESHOLD = 0;
                 if (data.sbsinventoryqtys.length > 0) {
                     THRESHOLD = data.sbsinventoryqtys[0].minimum_quantity;
@@ -828,7 +848,7 @@ export default class PrismService {
                 let PRODUCT_GENDER: 'Women' | 'Men' | 'Both' = 'Both';
                 if (dscode.toString().includes('WOM')) {
                     PRODUCT_GENDER = 'Women'
-                } else if (dscode.toString().includes('')) {
+                } else if (dscode.toString().includes('MEN')) {
                     PRODUCT_GENDER = 'Men'
                 }
                 const productInfo: ImportedProductType = {
@@ -980,8 +1000,9 @@ export default class PrismService {
             await prismCrawlHistory.save();
             return { datas };
         } else {
-            const filterDate = moment(new Date(currentDT.toString())).format('YYYY-MM-DDTHH:mm:ss');
-            const url = `${this.REST_BASE_URL}/inventory?cols=*,sbsinventoryqty.*,sbsinventorystoreqty.*,sbsinventoryactiveprice.*&filter=(modifieddatetime,ge,${filterDate})`;
+            console.log(true);
+            const filterDate = moment(new Date(crawlHistory.LAST_CRAWL_DATETIME.toString())).format('YYYY-MM-DDTHH:mm:ss');
+            const url = `${this.REST_BASE_URL}/inventory?cols=*,sbsinventoryqty.*,sbsinventorystoreqty.*,sbsinventoryactiveprice.*&filter=(modified_datetime,ge,${filterDate})or(created_datetime,ge,${filterDate})`;
             const response = await axios({
                 url,
                 method: 'GET',
@@ -991,7 +1012,7 @@ export default class PrismService {
                 }
             })
             let datas: Array<PrismInventoryType> = [];
-            datas = response.data.data;
+            datas = response.data;
             if (datas.length > 0) {
                 let productInformationList: Array<ImportedProductType> = [];
                 const getProductInfos = datas.map(async (data, i) => {
@@ -1020,12 +1041,12 @@ export default class PrismService {
                     const color = data.attribute;
                     const size = data.item_size;
                     const qty = data.sbsinventoryqtys.reduce((total, inv) => total + inv.quantity, 0);
-                    const imagePath = data.image_path.replace('\\', '/');
-                    const imageName = data.image_path.replace('\\', '').replace('inventory', '') + data.inventory_item_uid;
+                    const imagePath = data.image_path.replace(/\\/g, '/');
+                    const imageName = data.image_path.replace(/\\/g, '').replace('inventory', '') + data.inventory_item_uid.substring(1, data.inventory_item_uid.length);
                     const fileType = '.jpg';
-                    const IMAGE1_URL = imagePath + imageName + fileType;
-                    const IMAGE2_URL = imagePath + imageName + '%232' + fileType;
-                    const IMAGE3_URL = imagePath + imageName + '%233' + fileType;
+                    const IMAGE1_URL = data.image_path + '\\' + imageName + fileType;
+                    const IMAGE2_URL = data.image_path + '\\' + imageName + + '%232' + fileType;
+                    const IMAGE3_URL = data.image_path + '\\' + imageName + + '%233' + fileType;
                     let THRESHOLD = 0;
                     if (data.sbsinventoryqtys.length > 0) {
                         THRESHOLD = data.sbsinventoryqtys[0].minimum_quantity;
@@ -1083,18 +1104,254 @@ export default class PrismService {
                     return productInformationList;
                 });
                 await Promise.all(getProductInfos);
+
                 for (let i = 0; i < productInformationList.length; i++) {
-                    for (let y = 0; y < productInformationList[i].options.length; y++) {
-                        const UPC = productInformationList[i].options[y].UPC;
-                        const QTY = productInformationList[i].options[y].QTY;
-                        const response = await axios({
-                            url: `http://localhost:5035/products/updateProductByUPC/${UPC}`,
-                            method: 'PUT',
-                            data: {
-                                QTY
-                            },
-                            withCredentials: true
+                    const SKU = productInformationList[i].SKU;
+                    const PRODUCT_NAME = productInformationList[i].PRODUCT_NAME;
+                    const existedProductInformation = await this.productInformationRepository.findOne({ where: { PRODUCT_NAME } });
+                    console.log(existedProductInformation);
+                    if (!existedProductInformation) {
+                        const createProductInformationDTO = new CreateProductInformationDTO();
+                        createProductInformationDTO.PRODUCT_NAME = productInformationList[i].PRODUCT_NAME;
+                        createProductInformationDTO.SKU = productInformationList[i].SKU;
+                        createProductInformationDTO.SID_BRAND = productInformationList[i].SID_BRAND;
+                        createProductInformationDTO.PRODUCT_GENDER = productInformationList[i].PRODUCT_GENDER;
+                        createProductInformationDTO.LONG_DESCRIPTION = productInformationList[i].LONG_DESCRIPTION;
+                        createProductInformationDTO.LONG_DESCRIPTION_TEXT = productInformationList[i].LONG_DESCRIPTION_TEXT;
+                        createProductInformationDTO.SHORT_DESCRIPTION = productInformationList[i].SHORT_DESCRIPTION;
+                        createProductInformationDTO.SHORT_DESCRIPTION_TEXT = productInformationList[i].SHORT_DESCRIPTION_TEXT;
+                        createProductInformationDTO.UNIT_PRICE = productInformationList[i].PRICE;
+                        createProductInformationDTO.TAX = productInformationList[i].TAX;
+                        createProductInformationDTO.THRESHOLD = productInformationList[i].THRESHOLD;
+                        createProductInformationDTO.DISCOUNT = 0;
+                        const createProductInformationResponse = await axios({
+                            url: 'http://localhost:5035/products/product-information/create',
+                            method: 'POST',
+                            withCredentials: true,
+                            data: createProductInformationDTO
+                        })
+                        const createProductInformationResult = createProductInformationResponse.data;
+                        if (!createProductInformationResult.error) {
+                            const productInformation: ProductInformationType = createProductInformationResult.productInformation;
+                            console.log('1135:' + productInformation.SID);
+                            const body = {
+                                CATEGORY_ID_ARRAY: [productInformationList[i].CATEGORY_SID],
+                                SID_PRODUCT: productInformation.SID,
+                            }
+                            const addCategoryForProductResponse = await axios({
+                                url: `http://localhost:5035/products/add-categories`,
+                                method: 'POST',
+                                data: body,
+                                withCredentials: true,
+                            });
+                            const addCategoryForProductResult = addCategoryForProductResponse.data;
+                            if (addCategoryForProductResult.success.length > 0) {
+                                for (let y = 0; y < productInformationList[i].options.length; y++) {
+                                    const createProductInfo = {
+                                        QTY: productInformationList[i].options[y].QTY,
+                                        SID_PRODUCT_INFORMATION: productInformation.SID,
+                                        UPC: productInformationList[i].options[y].UPC,
+                                    }
+                                    const createProductResponse = await axios({
+                                        url: `http://localhost:5035/products/product/create`,
+                                        method: 'POST',
+                                        data: createProductInfo,
+                                        withCredentials: true,
+                                    })
+                                    let createProductResult = createProductResponse.data;
+                                    if (!createProductResult.error) {
+                                        const product: ProductType = createProductResult.product;
+                                        const addImagesToProductResponse = await axios({
+                                            url: `http://localhost:5035/products/add-prism-images/${product.SID}`,
+                                            method: 'POST',
+                                            withCredentials: true,
+                                            data: {
+                                                IMAGE1_URL: productInformationList[i].options[y].IMAGE1_URL,
+                                                IMAGE2_URL: productInformationList[i].options[y].IMAGE2_URL,
+                                                IMAGE3_URL: productInformationList[i].options[y].IMAGE3_URL
+                                            }
+                                        })
+                                        const createAttributeGroupResponse = await axios({
+                                            url: `http://localhost:5035/products/attribute-group/create`,
+                                            method: 'POST',
+                                            data: {
+                                                GROUP_ATTRIBUTE_ID: 1,
+                                                PRODUCT_INFORMATION_SID: productInformation.SID,
+                                                GROUP_VALUE_VARCHAR: productInformationList[i].options[y].groupAttributeValue
+                                            },
+                                            withCredentials: true,
+                                        })
+                                        const createAttributeGroupResult = createAttributeGroupResponse.data;
+                                        if (!createAttributeGroupResult.error) {
+                                            let attributeGroup: ProductAttributeGroupType = createAttributeGroupResult.newAttributeGroup;
+                                            console.log('1186:' + product.SID);
+                                            const createAttributeValueResponse = await axios({
+                                                url: `http://localhost:5035/products/attribute-value/create`,
+                                                method: 'POST',
+                                                data: {
+                                                    SID_PRODUCT: product.SID,
+                                                    PRODUCT_ATTRIBUTE_ID: 2,
+                                                    PRODUCT_ATTRIBUTE_GROUP_ID: attributeGroup.ID,
+                                                    VALUE_VARCHAR: productInformationList[i].options[y].subAttributeValue
+                                                },
+                                                withCredentials: true,
+                                            })
+                                            let newAttributeValue: ProductAttributeType;
+                                            const createAttributeValueResult = createAttributeValueResponse.data;
+                                            if (!createAttributeValueResult.error) {
+                                                newAttributeValue = createAttributeValueResult.newAttributeValue;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        try {
+                            await this.productInformationRepository
+                                .createQueryBuilder('product_information')
+                                .update()
+                                .set({
+                                    SHORT_DESCRIPTION: productInformationList[i].SHORT_DESCRIPTION,
+                                    SHORT_DESCRIPTION_TEXT: productInformationList[i].SHORT_DESCRIPTION_TEXT,
+                                    LONG_DESCRIPTION: productInformationList[i].LONG_DESCRIPTION,
+                                    LONG_DESCRIPTION_TEXT: productInformationList[i].LONG_DESCRIPTION_TEXT,
+                                })
+                                .where(`product_information.PRODUCT_NAME='${productInformationList[i].PRODUCT_NAME}'`)
+                                .execute();
+                        } catch (error) {
+                            console.log(error);
+                        }
+                        const newProductInfoPrice = this.productPriceRepository.create({
+                            UNIT_PRICE: productInformationList[i].PRICE,
+                            SID_PRODUCT_INFORMATION: existedProductInformation.SID,
                         });
+                        await newProductInfoPrice.save();
+
+                        for (let h = 0; h < productInformationList[i].options.length; h++) {
+                            const currentOption = productInformationList[i].options[h];
+                            const color = currentOption.groupAttributeValue;
+                            const size = currentOption.subAttributeValue;
+                            if (existedProductInformation.productAttributeGroups.filter(
+                                group => group.GROUP_VALUE_VARCHAR === color).length > 0) {
+                                const exixtedAttributeGroup = existedProductInformation.productAttributeGroups.filter(
+                                    group => group.GROUP_VALUE_VARCHAR === color)[0];
+                                if (exixtedAttributeGroup.productAttributeValues.filter(attributeValue =>
+                                    attributeValue.VALUE_VARCHAR === size).length === 0) {
+                                    const createProductInfo = {
+                                        QTY: currentOption.QTY,
+                                        SID_PRODUCT_INFORMATION: existedProductInformation.SID,
+                                        UPC: currentOption.UPC,
+                                    }
+                                    const createProductResponse = await axios({
+                                        url: `http://localhost:5035/products/product/create`,
+                                        method: 'POST',
+                                        data: createProductInfo,
+                                        withCredentials: true,
+                                    })
+                                    let createProductResult = createProductResponse.data;
+                                    if (!createProductResult.error) {
+                                        const product: ProductType = createProductResult.product;
+                                        const addImagesToProductResponse = await axios({
+                                            url: `http://localhost:5035/products/add-prism-images/${product.SID}`,
+                                            method: 'POST',
+                                            withCredentials: true,
+                                            data: {
+                                                IMAGE1_URL: currentOption.IMAGE1_URL,
+                                                IMAGE2_URL: currentOption.IMAGE2_URL,
+                                                IMAGE3_URL: currentOption.IMAGE3_URL
+                                            }
+                                        })
+                                        let attributeGroup: ProductAttributeGroupType = exixtedAttributeGroup;
+                                        console.log('1253: ' + product.SID);
+                                        const createAttributeValueResponse = await axios({
+                                            url: `http://localhost:5035/products/attribute-value/create`,
+                                            method: 'POST',
+                                            data: {
+                                                SID_PRODUCT: product.SID,
+                                                PRODUCT_ATTRIBUTE_ID: 2,
+                                                PRODUCT_ATTRIBUTE_GROUP_ID: attributeGroup.ID,
+                                                VALUE_VARCHAR: size,
+                                            },
+                                            withCredentials: true,
+                                        })
+                                        let newAttributeValue: ProductAttributeType;
+                                        const createAttributeValueResult = createAttributeValueResponse.data;
+                                        if (!createAttributeValueResult.error) {
+                                            newAttributeValue = createAttributeValueResult.newAttributeValue;
+                                        }
+                                    }
+                                } else {
+                                    const existedProduct = exixtedAttributeGroup.productAttributeValues.filter(attributeValue =>
+                                        attributeValue.VALUE_VARCHAR === size)[0].product;
+                                    existedProduct.images.forEach(async (image, i: number) => {
+                                        image.PRISM_URL = currentOption[`IMAGE${i + 1}_URL`];
+                                        try {
+                                            await image.save();
+                                        } catch (error) {
+                                            console.log(error);
+                                        }
+                                    })
+                                }
+                            } else {
+                                const createProductInfo = {
+                                    QTY: currentOption.QTY,
+                                    SID_PRODUCT_INFORMATION: existedProductInformation.SID,
+                                    UPC: currentOption.UPC,
+                                }
+                                const createProductResponse = await axios({
+                                    url: `http://localhost:5035/products/product/create`,
+                                    method: 'POST',
+                                    data: createProductInfo,
+                                    withCredentials: true,
+                                })
+                                let createProductResult = createProductResponse.data;
+                                if (!createProductResult.error) {
+                                    const product: ProductType = createProductResult.product;
+                                    const addImagesToProductResponse = await axios({
+                                        url: `http://localhost:5035/products/add-prism-images/${product.SID}`,
+                                        method: 'POST',
+                                        withCredentials: true,
+                                        data: {
+                                            IMAGE1_URL: currentOption.IMAGE1_URL,
+                                            IMAGE2_URL: currentOption.IMAGE2_URL,
+                                            IMAGE3_URL: currentOption.IMAGE3_URL
+                                        }
+                                    })
+                                    const createAttributeGroupResponse = await axios({
+                                        url: `http://localhost:5035/products/attribute-group/create`,
+                                        method: 'POST',
+                                        data: {
+                                            GROUP_ATTRIBUTE_ID: 1,
+                                            PRODUCT_INFORMATION_SID: existedProductInformation.SID,
+                                            GROUP_VALUE_VARCHAR: color,
+                                        },
+                                        withCredentials: true,
+                                    })
+                                    const createAttributeGroupResult = createAttributeGroupResponse.data;
+                                    if (!createAttributeGroupResult.error) {
+                                        let attributeGroup: ProductAttributeGroupType = createAttributeGroupResult.newAttributeGroup;
+                                        console.log('1310:' + product.SID);
+                                        const createAttributeValueResponse = await axios({
+                                            url: `http://localhost:5035/products/attribute-value/create`,
+                                            method: 'POST',
+                                            data: {
+                                                SID_PRODUCT: product.SID,
+                                                PRODUCT_ATTRIBUTE_ID: 2,
+                                                PRODUCT_ATTRIBUTE_GROUP_ID: attributeGroup.ID,
+                                                VALUE_VARCHAR: size,
+                                            },
+                                            withCredentials: true,
+                                        })
+                                        let newAttributeValue: ProductAttributeType;
+                                        const createAttributeValueResult = createAttributeValueResponse.data;
+                                        if (!createAttributeValueResult.error) {
+                                            newAttributeValue = createAttributeValueResult.newAttributeValue;
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

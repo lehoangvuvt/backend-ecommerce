@@ -33,35 +33,39 @@ async function bootstrap() {
   await app.listen(5035);
 
   // setInterval(async () => {
+    // console.log('start')
     // await axios({
     //   url: 'http://localhost:5035/prism/stores',
     //   method: 'GET',
     //   withCredentials: true
     // })
+    // console.log('Update stores successfully')
     // await axios({
     //   url: 'http://localhost:5035/prism/categories',
     //   method: 'GET',
     //   withCredentials: true
     // })
+    // console.log('Update categories successfully')
     // await axios({
     //   url: 'http://localhost:5035/prism/brands',
     //   method: 'GET',
     //   withCredentials: true
     // })
+    // console.log('Update brands successfully')
     // await axios({
     //   url: 'http://localhost:5035/prism/product-informations',
     //   method: 'GET',
     //   withCredentials: true,
     // });
-  //   console.log('Finished');
+    // console.log('Finished');
   // }, 1000 * 20);
 
-  // await axios({
-  //   url: 'http://localhost:5035/prism/product-informations',
-  //   method: 'GET',
-  //   withCredentials: true,
-  // });
-  // console.log('Finished');
+  await axios({
+    url: 'http://localhost:5035/prism/product-informations',
+    method: 'GET',
+    withCredentials: true,
+  });
+  console.log('Finished');
 
   // await axios({
   //   url: 'http://localhost:5035/prism/stores',

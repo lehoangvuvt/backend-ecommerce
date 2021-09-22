@@ -413,4 +413,15 @@ export default class ProductController {
         const response = await this.service.getAllProducts();
         return res.json({ allProducts: response.allProducts });
     }
+
+    // @Put('/updateProductByUPC/:UPC')
+    // async updateProductByUPC(
+    //     @Param('UPC') UPC: string,
+    //     @Body() updateProductByUPCDTO: UpdateProductByUPCDTO,
+    //     @Req() req: any,
+    //     @Res() res: Response
+    // ) {
+    //     const response = await this.service.updateProductByUPC(UPC, updateProductByUPCDTO);
+    //     return res.status(200).json({ productToUpdate: response.productToUpdate });
+    // }
 }

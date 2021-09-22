@@ -48,6 +48,7 @@ class OrderController {
         return res.status(200).json({error: "Order failed. Try order again later."})
       }
       store_default = storeDefault.STORE_CODE;
+      createOrderDTO.STORE_ID = storeDefault.STORE_ID;
     }
     console.log('abc')
     if (req.customer && req.customer.SID) {
@@ -71,14 +72,14 @@ class OrderController {
         this.service.sendMailToAdmin(response.order);
         this.service.sendViber(response.order);
         //Get store
-        const url = "http://localhost:5035/socket/orders";
-        const socket = io(url, { transports: ["websocket"] });
+        // const url = "http://localhost:5035/socket/orders";
+        // const socket = io(url, { transports: ["websocket"] });
         if (response.createOrderDTO.STORE_ID) {
           const store_code = await this.service.getStoreCode(response.createOrderDTO.STORE_ID);
-          socket.emit('newOrders', { store: store_code });
+          // socket.emit('newOrders', { store: store_code });
           this.prismService.updateOrder(response.createOrderDTO, store_code);
         } else {
-          socket.emit('newOrders', store_default);
+          // socket.emit('newOrders', store_default);
           this.prismService.updateOrder(response.createOrderDTO, store_default);
         }
         return res.json({
@@ -111,14 +112,14 @@ class OrderController {
         this.service.sendMailToAdmin(response.order);
         this.service.sendViber(response.order);
         console.log(3);
-        const url = "http://localhost:5035/socket/orders";
-        const socket = io(url, { transports: ["websocket"] });
+        // const url = "http://localhost:5035/socket/orders";
+        // const socket = io(url, { transports: ["websocket"] });
         if (response.createOrderDTO.STORE_ID) {
           const store_code = await this.service.getStoreCode(response.createOrderDTO.STORE_ID);
-          socket.emit('newOrders', { store: store_code });
+          // socket.emit('newOrders', { store: store_code });
           this.prismService.updateOrder(response.createOrderDTO, store_code);
         } else {
-          socket.emit('newOrders', store_default);
+          // socket.emit('newOrders', store_default);
           this.prismService.updateOrder(response.createOrderDTO, store_default);
         }
         return res.json({
@@ -202,6 +203,15 @@ class OrderController {
         error: 'The customer ID is forbidden',
       });
     }
+  }
+
+  @Post('/prism/update-noti/:STORE_CODE')
+  async updateNotiInPrism(
+    @Res() res: Response,
+    @Param('STORE_CODE') store_code: string
+  ) {
+    this.prismService.updateNotiInStoreCode(store_code);
+    return res.status(200).json();
   }
 
   @Put('/order/update-status')

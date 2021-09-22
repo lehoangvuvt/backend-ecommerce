@@ -1056,6 +1056,7 @@ class CustomerService {
                                 .leftJoinAndSelect("product.productInformation", "productInformation")
                                 .leftJoinAndSelect("product.images", "images")
                                 .leftJoinAndSelect("productInformation.productPrices", "productPrices")
+                                .orderBy('productPrices.CREATED_DATETIME','DESC')
                                 .where('product.SID = :rsid', { rsid: promotion[index].REWARD_ITEMS_SID })
                                 .getOne();
                             let productAttributeGroup = await this.productAttributeGroupRepository.createQueryBuilder("product_attribute_group")
@@ -1180,6 +1181,7 @@ class CustomerService {
                                 .leftJoinAndSelect("product.productInformation", "productInformation")
                                 .leftJoinAndSelect("product.images", "images")
                                 .leftJoinAndSelect("productInformation.productPrices", "productPrices")
+                                .orderBy("productPrices.CREATED_DATETIME", 'DESC')
                                 .where('product.SID = :rsid', { rsid: promotion[index].REWARD_ITEMS_SID })
                                 .getOne();
                             let productAttributeGroup = await this.productAttributeGroupRepository.createQueryBuilder("product_attribute_group")
